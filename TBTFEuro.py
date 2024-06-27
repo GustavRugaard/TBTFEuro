@@ -43,10 +43,20 @@ class TBTFEuro:
             'Kroatien': {'Gule kort': 7, 'Røde kort': 0}
         }
 
+        self.bois = ['Gustav',
+                     'Findsen',
+                     'Mads',
+                     'Kris',
+                     'Jens',
+                     'Thomas',
+                     'Rasmus'
+        ]
+
         self._ImporterGrupperResultater()
         self._BeregnGrupperStilling()
         self._ImporterBud()
         self._BeregnGrupperBois()
+        self._BeregnGrupperStillingBois()
 
     def _ImporterGrupperResultater(self):
         # Importerer resultater fra gruppespillet
@@ -132,13 +142,13 @@ class TBTFEuro:
 
         html = "<div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;'>"
         for gruppe, df in self.StillingGrupper.items():
-            styled_df = df.style.apply(formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption(gruppe)
-            html += styled_df._repr_html_()
+            formateret_df = df.style.apply(formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption(gruppe)
+            html += formateret_df._repr_html_()
         html += "</div>"
 
         html += "<div style='text-align:center; margin-top: 20px;'>"
-        styled_third_place_df = self.StillingTredjepladser.style.apply(formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption('Bedste 3\'ere')
-        html += styled_third_place_df._repr_html_()
+        formateret_tredjeplads_df = self.StillingTredjepladser.style.apply(formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption('Bedste 3\'ere')
+        html += formateret_tredjeplads_df._repr_html_()
         html += "</div>"
 
         display(HTML(html))
@@ -222,4 +232,180 @@ class TBTFEuro:
             {self.BoisStilling.to_html(index=False)}
         </div>
         """
+        display(HTML(html))
+
+    def _BeregnGrupperStillingBois(self):
+        # Beregner gruppestillinger ifølge bois
+        self.bStillingGrupperSamlet = {} # Definerer tom dict til samlede gruppestillinger for bois
+
+        for boi, kampe in self.GrupperBud.items():
+            self.bStillingSamlet = {} # Definerer tomme dict til hver enkelt boi
+            self.bStillingGrupper = {}
+            self.bStillingTredjepladser = {}
+
+            for gruppe, lande in self.Grupper.items(): # Fylder dict med variable for hvert land
+                for land in lande:
+                    self.bStillingSamlet[land] = {
+                    'Point': 0, 
+                    'Mål for': 0, 
+                    'Mål imod': 0, 
+                    'Målforskel': 0,
+                    'Kort': 0
+                }
+            
+            for bud in self.GrupperBud[boi]: # Beregner point fra bois' bud
+                if bud['Mål 1'] > bud['Mål 2']: # Hold 1 vinder
+                    self.bStillingSamlet[bud['Hold 1']]['Point'] += 3
+                if bud['Mål 1'] < bud['Mål 2']: # Hold 2 vinder
+                    self.bStillingSamlet[bud['Hold 2']]['Point'] += 3
+                if bud['Mål 1'] == bud['Mål 2']: # Uafgjort
+                    self.bStillingSamlet[bud['Hold 1']]['Point'] += 1
+                    self.bStillingSamlet[bud['Hold 2']]['Point'] += 1
+                
+                self.bStillingSamlet[bud['Hold 1']]['Mål for'] += bud['Mål 1'] # Beregner mål for og imod
+                self.bStillingSamlet[bud['Hold 1']]['Mål imod'] += bud['Mål 2']
+                self.bStillingSamlet[bud['Hold 2']]['Mål for'] += bud['Mål 2']
+                self.bStillingSamlet[bud['Hold 2']]['Mål imod'] += bud['Mål 1']
+
+            for land, værdier in self.bStillingSamlet.items(): # Beregner målforskel og disciplin
+                værdier['Målforskel'] = værdier['Mål for'] - værdier['Mål imod']
+                værdier['Kort'] = self.GrupperKort[land]['Gule kort'] + self.GrupperKort[land]['Røde kort']
+
+            for gruppe, lande in self.Grupper.items():
+                dict = {land: self.bStillingSamlet[land] for land in lande}
+                df = pd.DataFrame.from_dict(dict, orient='index')
+
+                self.bStillingGrupper[gruppe] = df.sort_values(
+                    by=['Point', 'Målforskel', 'Mål for', 'Kort'], 
+                    ascending=[False, False, False, True]
+                )
+
+                TredjeRække = self.bStillingGrupper[gruppe].iloc[[2]]
+                TredjeLand = TredjeRække.index[0]
+                self.bStillingTredjepladser[TredjeLand] = TredjeRække.to_dict(orient='index')[TredjeLand]
+
+                self.bStillingGrupper[gruppe] = self.bStillingGrupper[gruppe].drop('Kort', axis='columns')
+        
+            self.bStillingTredjepladser = pd.DataFrame.from_dict(self.bStillingTredjepladser, orient='index').sort_values(
+                by=['Point', 'Målforskel', 'Mål for', 'Kort'], ascending=[False, False, False, True]).drop('Kort', axis='columns')
+            
+            self.bStillingGrupperSamlet[boi] = {'Gruppestillinger': self.bStillingGrupper, 'Tredjepladser': self.bStillingTredjepladser}
+
+    def _VisGrupperStillingBois(self, boi):
+        # Viser implicit gruppestilling og tredjeplads givet bois bud
+        def Formattering(s, tredjepladser):
+            formattering = []
+            for idx in range(len(s)):
+                if s.index[idx] in tredjepladser:
+                    formattering.append('background-color: rgba(0, 209, 0, 0.12)') 
+                elif idx < 1:
+                    formattering.append('background-color: rgba(0, 209, 0, 0.5)') 
+                elif 0 < idx < 2:
+                    formattering.append('background-color: rgba(0, 209, 0, 0.25)') 
+                else:
+                    formattering.append('')
+            return formattering
+
+        bStillingGrupper = self.bStillingGrupperSamlet[boi]['Gruppestillinger']
+        bStillingTredjepladser = self.bStillingGrupperSamlet[boi]['Tredjepladser']
+        tredjepladser = self.bStillingGrupperSamlet[boi]['Tredjepladser'].index[:4].tolist()
+
+        html = "<div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;'>"
+        for gruppe, df in bStillingGrupper.items():
+            formateret_df = df.style.apply(Formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption(gruppe)
+            html += formateret_df._repr_html_()
+        html += "</div>"
+
+        html += "<div style='text-align:center; margin-top: 20px;'>"
+        formateret_tredjeplads_df = bStillingTredjepladser.style.apply(Formattering, axis=0, tredjepladser=tredjepladser).set_table_attributes('style="display:inline;margin:5px;"').set_caption('Bedste 3\'ere')
+        html += formateret_tredjeplads_df._repr_html_()
+        html += "</div>"
+
+        display(HTML(html))
+        
+    def _VisGrupperStillingBoisDiff(self, boi):
+        # Viser tabeller med differencer
+        def BeregnPlaceringDiff(Hold1, Hold2):
+            faktisk_placering = {land: idx for idx, land in enumerate(Hold2)}
+
+            diff_liste = []
+
+            for idx, land in enumerate(Hold1):
+                placering_diff = idx - faktisk_placering[land]
+                diff_liste.append(f'{land} ({placering_diff:+d})')
+
+            return diff_liste
+        
+        def LavDiff(x, y):
+            if x > y:
+                return f'{x} (-{x - y})'
+            elif x < y: 
+                return f'{x} (+{y - x})'
+            else:
+                return f'{x} (+0)'
+        
+        bStillingGrupperSamletDiff = {}
+
+        for gruppe, stilling in self.bStillingGrupperSamlet[boi]['Gruppestillinger'].items():
+            bStillingGrupperDiff = {}
+            
+            bRækkefølge = list(stilling.index) # Laver ny tekst til hold afhængig af placering ift. resultat
+            Rækkefølge = list(self.StillingGrupper[gruppe].index)
+            NyeLande = BeregnPlaceringDiff(bRækkefølge, Rækkefølge)
+
+            for idx, land in enumerate(bRækkefølge):
+                bud = stilling.loc[land]
+                resultat = self.StillingGrupper[gruppe].loc[land]
+                
+                NyePoint, NyeMålFor, NyeMålImod, NyMålforskel = [LavDiff(bud[i], resultat[i]) for i in range(len(bud))]
+                NyeVærdier = {
+                    'Point': NyePoint, 
+                    'Mål for': NyeMålFor, 
+                    'Mål imod': NyeMålImod, 
+                    'Målforskel': NyMålforskel
+                }
+                bStillingGrupperDiff[NyeLande[idx]] = NyeVærdier
+            
+            bStillingGrupperSamletDiff[gruppe] = bStillingGrupperDiff
+
+        for gruppe, stilling in bStillingGrupperSamletDiff.items():
+            bStillingGrupperSamletDiff[gruppe] = pd.DataFrame.from_dict(stilling, orient='index')
+        
+        html = f"""
+        <style>
+            .bois-dataframe {{
+                font-size: 10px;
+            }}
+            .bois-dataframe thead th {{
+                text-align: center;
+                font-size: 12px;
+            }}
+            .bois-dataframe tbody td {{
+                text-align: center;
+            }}
+            .bois-dataframe thead th:nth-child(1), .bois-dataframe tbody td:nth-child(1) {{
+                width: 150px;
+            }}
+            .bois-dataframe thead th:nth-child(2), .bois-dataframe tbody td:nth-child(2) {{
+                width: 100px;
+            }}
+            .bois-dataframe thead th:nth-child(3), .bois-dataframe tbody td:nth-child(3) {{
+                width: 100px;
+            }}
+            .bois-dataframe thead th:nth-child(4), .bois-dataframe tbody td:nth-child(4) {{
+                width: 100px;
+            }}
+            .bois-dataframe thead th:nth-child(5), .bois-dataframe tbody td:nth-child(5) {{
+                width: 100px;
+            }}
+        </style>
+        <div style='display: flex; justify-content: center; font-size: 16px; margin-bottom: 10px; margin-top: 30px'>
+            <strong>{boi}</strong>
+        </div>
+        <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;'>
+        """
+        for gruppe, df in bStillingGrupperSamletDiff.items():
+            html += df.to_html(classes='bois-dataframe', index=True, header=True, table_id=gruppe, border=0)
+        html += "</div>"
+        
         display(HTML(html))
