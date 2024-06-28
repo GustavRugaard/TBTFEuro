@@ -295,16 +295,19 @@ class TBTFEuro:
             
             self.bStillingGrupperSamlet[boi] = {'Gruppestillinger': self.bStillingGrupper, 'Tredjepladser': self.bStillingTredjepladser}
 
-            self.bKorrekteGruppevindere = {}
+        self.bKorrekteGruppevindere = {}
 
-            for boi, stilling in self.bStillingGrupperSamlet.items():
-                KorrekteGrupperVindere = 0
-                for gruppe, df in stilling['Gruppestillinger'].items():
-                    Vinder = self.StillingGrupper[gruppe].index[0]
-                    bVinder = df.index[0]
-                    if Vinder == bVinder:
-                        KorrekteGrupperVindere += 1
-                self.bKorrekteGruppevindere[boi] = KorrekteGrupperVindere
+        for boi, stilling in self.bStillingGrupperSamlet.items():
+            KorrekteGrupperVindere = 0
+            for gruppe, df in stilling['Gruppestillinger'].items():
+                Vinder = self.StillingGrupper[gruppe].index[0]
+                bVinder = df.index[0]
+                if Vinder == bVinder:
+                    KorrekteGrupperVindere += 5
+            self.bKorrekteGruppevindere[boi] = KorrekteGrupperVindere
+            self.BoisStilling.loc[self.BoisStilling['Boi'] == boi, 'Point'] += self.bKorrekteGruppevindere[boi]
+        
+        self.BoisStilling = self.BoisStilling.sort_values(by='Point', ascending=False).reset_index(drop=True)
 
     def _VisGrupperStillingBois(self, boi):
         # Viser implicit gruppestilling og tredjeplads givet bois bud
@@ -469,6 +472,8 @@ class TBTFEuro:
                 Vinder = Hold1
             elif MålHold1 < MålHold2:
                 Vinder = Hold2
+            else:
+                Vinder = np.nan
 
             if k < 9:
                 self.Kvartfinalister.append(Vinder)
@@ -571,6 +576,10 @@ class TBTFEuro:
             Vinder = set(self.Vinder)
             KorrektVinder = bVinder.intersection(Vinder)
             self.SlutspilBoisPoint[boi].append(len(KorrektVinder) * 15)
+
+            self.BoisStilling.loc[self.BoisStilling['Boi'] == boi, 'Point'] += sum(self.SlutspilBoisPoint[boi])
+        
+        self.BoisStilling = self.BoisStilling.sort_values(by='Point', ascending=False).reset_index(drop=True)
 
 
 
