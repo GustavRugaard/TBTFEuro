@@ -57,6 +57,10 @@ class TBTFEuro:
         self._ImporterBud()
         self._BeregnGrupperBois()
         self._BeregnGrupperStillingBois()
+        self._ImporterSlutspilResultater()
+        self._BestemSlutspil()
+        self._ImporterSlutspilBud()
+        self._BeregnSlutspilBois()
 
     def _ImporterGrupperResultater(self):
         # Importerer resultater fra gruppespillet
@@ -235,7 +239,7 @@ class TBTFEuro:
         display(HTML(html))
 
     def _BeregnGrupperStillingBois(self):
-        # Beregner gruppestillinger ifølge bois
+        # Beregner gruppestillinger ifølge bois samt ekstra point for gæt af gruppevinder
         self.bStillingGrupperSamlet = {} # Definerer tom dict til samlede gruppestillinger for bois
 
         for boi, kampe in self.GrupperBud.items():
@@ -290,6 +294,17 @@ class TBTFEuro:
                 by=['Point', 'Målforskel', 'Mål for', 'Kort'], ascending=[False, False, False, True]).drop('Kort', axis='columns')
             
             self.bStillingGrupperSamlet[boi] = {'Gruppestillinger': self.bStillingGrupper, 'Tredjepladser': self.bStillingTredjepladser}
+
+            self.bKorrekteGruppevindere = {}
+
+            for boi, stilling in self.bStillingGrupperSamlet.items():
+                KorrekteGrupperVindere = 0
+                for gruppe, df in stilling['Gruppestillinger'].items():
+                    Vinder = self.StillingGrupper[gruppe].index[0]
+                    bVinder = df.index[0]
+                    if Vinder == bVinder:
+                        KorrekteGrupperVindere += 1
+                self.bKorrekteGruppevindere[boi] = KorrekteGrupperVindere
 
     def _VisGrupperStillingBois(self, boi):
         # Viser implicit gruppestilling og tredjeplads givet bois bud
@@ -409,3 +424,158 @@ class TBTFEuro:
         html += "</div>"
         
         display(HTML(html))
+
+    def _ImporterSlutspilResultater(self):
+        # Importerer resultater i slutspillet
+        SlutspilFil = 'Slutspil.xlsx'
+
+        self.SlutspilResultater = pd.read_excel( # Indlæser slutspilsfil
+            SlutspilFil,
+            header=0,
+            names=['Hold 1', 'Hold 2', 'Mål 1', 'Mål 2', 'Forlænget 1', 'Forlænget 2', 'Straffe 1', 'Straffe 2']
+        )
+
+        int_kolonner = ['Mål 1', 'Mål 2', 'Forlænget 1', 'Forlænget 2', 'Straffe 1', 'Straffe 2']
+        for kol in int_kolonner: # Konverterer mål til int
+            self.SlutspilResultater[kol] = self.SlutspilResultater[kol].apply(lambda x: int(x) if not pd.isna(x) else np.nan)
+
+        self.SlutspilResultater = self.SlutspilResultater.to_dict(orient='records') # Konverterer til dict
+
+    def _BestemSlutspil(self):
+        # Bestemmer udfald af slutspil ud fra hidtige resultater
+        self.Kvartfinalister = []
+        self.Semifinalister = []
+        self.Finalister = []
+        self.Vinder = []
+
+        k = 1
+
+        for kamp in self.SlutspilResultater:
+            Hold1 = kamp['Hold 1']
+            Hold2 = kamp['Hold 2']
+
+            MålHold1 = (
+                (kamp['Mål 1'] if not pd.isna(kamp['Mål 1']) else 0) +
+                (kamp['Forlænget 1'] if not pd.isna(kamp['Forlænget 1']) else 0) +
+                (kamp['Straffe 1'] if not pd.isna(kamp['Straffe 1']) else 0)
+            )
+            MålHold2 = (
+                (kamp['Mål 2'] if not pd.isna(kamp['Mål 2']) else 0) +
+                (kamp['Forlænget 2'] if not pd.isna(kamp['Forlænget 2']) else 0) +
+                (kamp['Straffe 2'] if not pd.isna(kamp['Straffe 2']) else 0)
+            )
+
+            if MålHold1 > MålHold2:
+                Vinder = Hold1
+            elif MålHold1 < MålHold2:
+                Vinder = Hold2
+
+            if k < 9:
+                self.Kvartfinalister.append(Vinder)
+            elif k < 13:
+                self.Semifinalister.append(Vinder)
+            elif k < 15:
+                self.Finalister.append(Vinder)
+            else:
+                self.Vinder.append(Vinder)
+
+            k += 1
+
+        Ottendedelsfinalister = set()
+
+        for kamp in self.SlutspilResultater:
+            Ottendedelsfinalister.add(kamp['Hold 1'])
+            Ottendedelsfinalister.add(kamp['Hold 2'])
+
+        self.Ottendedelsfinalister = list(Ottendedelsfinalister)
+                
+    def _ImporterSlutspilBud(self):
+        # Importer bois bud på slutspil
+        SlutspilBudFil = 'SlutspilBud.xlsx'
+
+        self.SlutspilBud = pd.read_excel(
+            SlutspilBudFil,
+            sheet_name=None,
+            header=None,
+            names=['Hold']
+        )
+
+        self.SlutspilBudRunder = {}
+
+        for boi, ark in self.SlutspilBud.items():
+            AlleRunder = list(ark['Hold'])
+
+            Ottendedelsfinalister = []
+            Kvartfinalister = []
+            Semifinalister = []
+            Finalister = []
+            Vinder = []
+            
+            AntalRunder = {
+                'Ottendedelsfinalister': 16,
+                'Kvartfinalister': 24,
+                'Semifinalister': 28,
+                'Finalister': 30,
+            }
+
+            for h, hold in enumerate(AlleRunder):
+                if 0 <= h < AntalRunder['Ottendedelsfinalister']:
+                    Ottendedelsfinalister.append(hold)
+
+                if AntalRunder['Ottendedelsfinalister'] <= h < AntalRunder['Kvartfinalister']:
+                    Kvartfinalister.append(hold)
+
+                if AntalRunder['Kvartfinalister'] <= h < AntalRunder['Semifinalister']:
+                    Semifinalister.append(hold)
+
+                if AntalRunder['Semifinalister'] <= h < AntalRunder['Finalister']:
+                    Finalister.append(hold)
+
+                if h == 30:
+                    Vinder.append(hold)
+
+            self.SlutspilBudRunder[boi] = {
+                'Ottendedelsfinalister':Ottendedelsfinalister,
+                'Kvartfinalister':Kvartfinalister,
+                'Semifinalister':Semifinalister,
+                'Finalister':Finalister,
+                'Vinder':Vinder
+            }
+
+    def _BeregnSlutspilBois(self):
+        # Beregner point for slutspil for bois
+        self.SlutspilBoisPoint = {boi: [] for boi in self.SlutspilBudRunder.keys()}
+        
+        for boi, værdier in self.SlutspilBudRunder.items():
+            bOttendedelsfinalister = set(værdier['Ottendedelsfinalister']) # Point for ottendedelsfinalister
+            Ottendedelsfinalister = set(self.Ottendedelsfinalister)
+            KorrekteOttendedelsfinalister = bOttendedelsfinalister.intersection(Ottendedelsfinalister)
+            self.SlutspilBoisPoint[boi].append(len(KorrekteOttendedelsfinalister) * 4)
+
+            bKvartfinalister = set(værdier['Kvartfinalister']) # Point for kvartfinalister
+            Kvartfinalister = set(self.Kvartfinalister)
+            KorrekteKvartfinalister = bKvartfinalister.intersection(Kvartfinalister)
+            self.SlutspilBoisPoint[boi].append(len(KorrekteKvartfinalister) * 6)
+
+            bSemifinalister = set(værdier['Semifinalister']) # Point for semifinalister
+            Semifinalister = set(self.Semifinalister)
+            KorrekteSemifinalister = bSemifinalister.intersection(Semifinalister)
+            self.SlutspilBoisPoint[boi].append(len(KorrekteSemifinalister) * 8)
+
+            bFinalister = set(værdier['Finalister']) # Point for finalister
+            Finalister = set(self.Finalister)
+            KorrekteFinalister = bFinalister.intersection(Finalister)
+            self.SlutspilBoisPoint[boi].append(len(KorrekteFinalister) * 10)
+
+            bVinder = set(værdier['Vinder']) # Point for vinder
+            Vinder = set(self.Vinder)
+            KorrektVinder = bVinder.intersection(Vinder)
+            self.SlutspilBoisPoint[boi].append(len(KorrektVinder) * 15)
+
+
+
+
+
+            
+
+
